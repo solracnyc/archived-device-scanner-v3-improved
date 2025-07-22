@@ -32,14 +32,16 @@ This v3.0.0 "Improved" version is the recommended version because it:
 - 🎯 **Flexible Testing**: Test individual accounts before full scan
 - 📝 **Debug Logging**: Optional debug sheet for troubleshooting
 - ⏸️ **Resumable**: Pause and resume scans anytime
+- 🔍 **Device Preview**: Check what devices accounts have before deletion
 
 ## Menu Options
 
 | Option | Description |
 |--------|-------------|
 | Setup Sheets | Creates required sheets with headers |
-| Start Scan | Begins scanning all archived accounts |
+| Start Scan | Begins scanning all archived accounts and removes devices |
 | Test Single Account | Tests one account before full scan |
+| Scan Device Preview | Shows device count and models without deleting |
 | Check Status | Shows current scan progress |
 | Reset Scan | Clears all data and state |
 
@@ -65,6 +67,10 @@ This v3.0.0 "Improved" version is the recommended version because it:
 
 ## Version History
 
+- **v3.1.0** - Added Device Preview Feature
+  - New "Scan Device Preview" function to check devices before deletion
+  - Shows device count, models, and last scanned time
+  - Non-destructive preview for planning purposes
 - **v3.0.1** - Fixed API parameter syntax and alert dialog errors
   - Corrected Mobiledevices.list() to use proper parameter order
   - Fixed Ui.alert() calls with missing ButtonSet parameter

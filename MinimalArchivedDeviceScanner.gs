@@ -3,7 +3,7 @@
  * Clean, efficient Google Apps Script to remove mobile devices from archived accounts
  * 
  * @author Your Organization
- * @version 3.0.1
+ * @version 3.1.0
  * @license MIT
  */
 
@@ -27,6 +27,7 @@ function onOpen() {
     .addSeparator()
     .addItem('🚀 Start Scanning', 'startScan')
     .addItem('🔍 Test Single Account', 'testAccount')
+    .addItem('🔍 Scan Device Preview', 'scanDevicePreview')
     .addSeparator()
     .addItem('📊 Check Status', 'checkStatus')
     .addItem('🔄 Reset Scanner', 'resetScan')
@@ -41,12 +42,19 @@ function setupSheets() {
   if (!accountsSheet) accountsSheet = ss.insertSheet(CONFIG.ACCOUNTS_SHEET_NAME, 0);
   
   accountsSheet.clear();
-  accountsSheet.getRange('A1:B1')
-    .setValues([['Email Address', 'Notes']])
+  accountsSheet.getRange('A1:G1')
+    .setValues([['Email Address', 'Notes', 'Reserved', 'Status', 'Device Count', 'Device Models', 'Last Scanned']])
     .setFontWeight('bold');
   accountsSheet.getRange('A2:B2')
-    .setValues([['user@example.com', 'Add emails here, then run Start Scanning']]);
+    .setValues([['user@example.com', 'Add emails here, then run Scan Device Preview']]);
   accountsSheet.setFrozenRows(1);
+  
+  // Set column widths for better visibility
+  accountsSheet.setColumnWidth(1, 200); // Email
+  accountsSheet.setColumnWidth(2, 150); // Notes
+  accountsSheet.setColumnWidth(5, 100); // Device Count
+  accountsSheet.setColumnWidth(6, 300); // Device Models
+  accountsSheet.setColumnWidth(7, 150); // Last Scanned
   
   // Log sheet
   let logSheet = ss.getSheetByName(CONFIG.LOG_SHEET_NAME);
@@ -356,4 +364,109 @@ function testAccount() {
       ui.alert('Invalid email address');
     }
   }
+}
+
+//================== DEVICE PREVIEW FUNCTION ==================
+/**
+ * Scan emails and preview device information without deleting anything
+ */
+function scanDevicePreview() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const accountsSheet = ss.getSheetByName(CONFIG.ACCOUNTS_SHEET_NAME);
+  
+  if (!accountsSheet) {
+    SpreadsheetApp.getUi().alert('Archived Accounts sheet not found. Run Setup Sheets first.');
+    return;
+  }
+  
+  const lastRow = accountsSheet.getLastRow();
+  if (lastRow <= 1) {
+    SpreadsheetApp.getUi().alert('No accounts found. Please add emails to the Archived Accounts sheet.');
+    return;
+  }
+  
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    '🔍 Scan Device Preview',
+    `This will scan ${lastRow - 1} accounts to preview their devices.\nNo devices will be deleted.\n\nContinue?`,
+    ui.ButtonSet.YES_NO
+  );
+  
+  if (response !== ui.Button.YES) return;
+  
+  // Get all emails
+  const emails = accountsSheet.getRange(`A2:A${lastRow}`).getValues().flat().filter(email => email);
+  
+  if (emails.length === 0) {
+    ui.alert('No valid email addresses found.');
+    return;
+  }
+  
+  const startTime = Date.now();
+  let processed = 0;
+  let errors = 0;
+  
+  SpreadsheetApp.getActiveSpreadsheet().toast('Starting device preview scan...', '🔍 Scanning');
+  
+  // Process each email
+  emails.forEach((email, index) => {
+    if (!isValidEmail(email)) {
+      processed++;
+      return;
+    }
+    
+    try {
+      const devices = getUserDevices(email);
+      const rowNumber = index + 2; // +2 because we start from row 2
+      
+      if (devices.length > 0) {
+        // Extract device models
+        const deviceModels = devices.map(device => {
+          const model = device.model || device.type || 'Unknown';
+          const os = device.os ? ` (${device.os})` : '';
+          return model + os;
+        }).join(', ');
+        
+        // Update the row with device information
+        accountsSheet.getRange(rowNumber, 5).setValue(devices.length); // Device Count
+        accountsSheet.getRange(rowNumber, 6).setValue(deviceModels); // Device Models
+        accountsSheet.getRange(rowNumber, 7).setValue(new Date().toLocaleString()); // Last Scanned
+        
+        debugLog(`Preview: ${email} has ${devices.length} devices: ${deviceModels}`);
+      } else {
+        // No devices found
+        accountsSheet.getRange(rowNumber, 5).setValue(0); // Device Count
+        accountsSheet.getRange(rowNumber, 6).setValue('No devices'); // Device Models
+        accountsSheet.getRange(rowNumber, 7).setValue(new Date().toLocaleString()); // Last Scanned
+        
+        debugLog(`Preview: ${email} has no devices`);
+      }
+      
+      processed++;
+      
+      // Update progress every 10 accounts
+      if (processed % 10 === 0) {
+        SpreadsheetApp.getActiveSpreadsheet().toast(
+          `Scanned ${processed}/${emails.length} accounts...`,
+          '🔍 Progress'
+        );
+      }
+      
+    } catch (error) {
+      const rowNumber = index + 2;
+      accountsSheet.getRange(rowNumber, 5).setValue('Error'); // Device Count
+      accountsSheet.getRange(rowNumber, 6).setValue(error.message); // Error message
+      accountsSheet.getRange(rowNumber, 7).setValue(new Date().toLocaleString()); // Last Scanned
+      
+      debugLog(`Error previewing devices for ${email}: ${error.message}`);
+      errors++;
+      processed++;
+    }
+  });
+  
+  const duration = Math.round((Date.now() - startTime) / 1000);
+  const message = `Preview complete!\n\nAccounts scanned: ${processed}\nErrors: ${errors}\nDuration: ${duration} seconds`;
+  
+  SpreadsheetApp.getUi().alert('✅ Preview Complete', message, SpreadsheetApp.getUi().ButtonSet.OK);
+  debugLog(`Device preview completed: ${message.replace(/\n/g, ' ')}`);
 }
