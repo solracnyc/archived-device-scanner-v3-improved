@@ -179,28 +179,29 @@ function getUserDevices(targetEmail) {
   
   do {
     try {
+      // This query makes the API call more specific and efficient
+      // by only asking for devices matching the user's email.
       const params = {
         customer: 'my_customer',
         maxResults: CONFIG.BATCH_SIZE,
-        pageToken: pageToken
+        pageToken: pageToken,
+        query: 'email:' + targetEmail 
       };
       
       const response = retryApiCall(() => AdminDirectory.Mobiledevices.list(params));
       
+      // The API response now only contains devices for the target user
       if (response.mobiledevices) {
-        // Filter devices for target user
-        const userDevices = response.mobiledevices.filter(device => {
-          const deviceEmail = (device.email || (device.emails && device.emails[0]) || '').toLowerCase();
-          return deviceEmail === targetEmail.toLowerCase();
-        });
-        devices.push(...userDevices);
+        devices.push(...response.mobiledevices);
       }
       
       pageToken = response.nextPageToken;
       
     } catch (error) {
+      // This ensures that if the API call fails, the main function will know about it
+      // and log it correctly as an error.
       debugLog('Error fetching devices for ' + targetEmail + ': ' + error.message);
-      break;
+      throw new Error(error.message); 
     }
   } while (pageToken);
   
