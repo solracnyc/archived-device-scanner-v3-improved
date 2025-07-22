@@ -181,14 +181,13 @@ function getUserDevices(targetEmail) {
     try {
       // This query makes the API call more specific and efficient
       // by only asking for devices matching the user's email.
-      const params = {
-        customer: 'my_customer',
+      const response = retryApiCall(() => AdminDirectory.Mobiledevices.list('my_customer', {
         maxResults: CONFIG.BATCH_SIZE,
         pageToken: pageToken,
-        query: 'email:' + targetEmail 
-      };
-      
-      const response = retryApiCall(() => AdminDirectory.Mobiledevices.list(params));
+        query: 'email:' + targetEmail,
+        orderBy: 'EMAIL',
+        projection: 'FULL'
+      }));
       
       // The API response now only contains devices for the target user
       if (response.mobiledevices) {
