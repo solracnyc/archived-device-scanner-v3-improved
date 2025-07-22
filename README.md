@@ -65,9 +65,19 @@ This v3.0.0 "Improved" version is the recommended version because it:
 
 ## Version History
 
-- **v3.0.0** - Current improved hybrid version (recommended)
+- **v3.0.1** - Fixed API parameter syntax and alert dialog errors
+  - Corrected Mobiledevices.list() to use proper parameter order
+  - Fixed Ui.alert() calls with missing ButtonSet parameter
+  - Improved API query efficiency with email filtering
+- **v3.0.0** - Initial improved hybrid version
 - **v2.0.0** - Previous versions (Gemini variant and original)
 - **v1.0.0** - Initial release
+
+## Recent Fixes (v3.0.1)
+
+1. **API Parameter Fix**: The script now correctly passes `'my_customer'` as the first parameter to `AdminDirectory.Mobiledevices.list()`
+2. **Query Optimization**: Added email-based filtering to reduce API load
+3. **UI Alerts**: Fixed all alert dialogs to include required ButtonSet parameter
 
 ## License
 

@@ -3,7 +3,7 @@
  * Clean, efficient Google Apps Script to remove mobile devices from archived accounts
  * 
  * @author Your Organization
- * @version 3.0.0
+ * @version 3.0.1
  * @license MIT
  */
 
