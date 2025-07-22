@@ -68,7 +68,7 @@ function setupSheets() {
     .setFontWeight('bold');
   debugSheet.setFrozenRows(1);
   
-  SpreadsheetApp.getUi().alert('✅ Setup Complete', 'Sheets created. Add emails to "Archived Accounts" sheet.');
+  SpreadsheetApp.getUi().alert('✅ Setup Complete', 'Sheets created. Add emails to "Archived Accounts" sheet.', SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 //================== MAIN SCAN LOGIC ==================
@@ -284,7 +284,7 @@ function completeScan(state) {
   
   const message = `Scan complete!\n\nAccounts: ${state.totalAccounts}\nDevices removed: ${state.devicesRemoved}\nErrors: ${state.errorsCount}`;
   debugLog('Scan completed: ' + message.replace(/\n/g, ' '));
-  SpreadsheetApp.getUi().alert('✅ Scan Complete', message);
+  SpreadsheetApp.getUi().alert('✅ Scan Complete', message, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 //================== UTILITIES ==================
@@ -339,7 +339,7 @@ function checkStatus() {
                   `Errors: ${state.errorsCount}\n` +
                   `Started: ${new Date(state.startTime).toLocaleString()}`;
   
-  SpreadsheetApp.getUi().alert('📊 Scan Status', message);
+  SpreadsheetApp.getUi().alert('📊 Scan Status', message, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 function testAccount() {
