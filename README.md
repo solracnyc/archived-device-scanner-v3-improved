@@ -1,4 +1,4 @@
-# Archived Device Scanner v3.0.0 (Improved)
+# Archived Device Scanner v3.2.0 (Improved)
 
 The best version of the Google Workspace Archived Device Scanner - a hybrid combining the robust features from v2 original with the improved UI/UX from the Gemini version.
 
@@ -33,31 +33,39 @@ This v3.0.0 "Improved" version is the recommended version because it:
 - 📝 **Debug Logging**: Optional debug sheet for troubleshooting
 - ⏸️ **Resumable**: Pause and resume scans anytime
 - 🔍 **Device Preview**: Check what devices accounts have before deletion
+- ⏱️ **No Timeouts**: Both scan and preview handle large datasets with automatic pause/resume
 
 ## Menu Options
 
 | Option | Description |
 |--------|-------------|
 | Setup Sheets | Creates required sheets with headers |
-| Start Scan | Begins scanning all archived accounts and removes devices |
+| Start Scan | Begins scanning all archived accounts and removes devices (auto-resumes if timeout) |
 | Test Single Account | Tests one account before full scan |
-| Scan Device Preview | Shows device count and models without deleting |
-| Check Status | Shows current scan progress |
-| Reset Scan | Clears all data and state |
+| Scan Device Preview | Shows device count and models without deleting (auto-resumes if timeout) |
+| Check Status | Shows current scan progress for both removal and preview operations |
+| Reset Scan | Clears all data and state for both scans |
 
-## Output Columns
+## Sheet Structure
 
+### Archived Accounts Sheet
 | Column | Description |
 |--------|-------------|
-| Email | Archived user's email |
-| Status | Found/Not Found/Error |
-| Device Count | Number of devices found |
-| Model | Device model names |
-| Serial Number | Device serial numbers |
-| Last Sync | Last sync times |
-| OS Version | Chrome OS versions |
-| Status | Device status |
-| Error | Error messages (if any) |
+| Email Address | User's email address |
+| Device Count | Number of devices found (populated by preview) |
+| Device Models | List of device models (populated by preview) |
+| Last Scanned | Timestamp of last preview scan |
+
+### Device Log Sheet
+| Column | Description |
+|--------|-------------|
+| Timestamp | When the action occurred |
+| Email | User's email address |
+| Status | REMOVED/FAILED/NOT_FOUND/ERROR |
+| Device Model | Device model name |
+| Device Type | Type of device |
+| Device ID | Unique device identifier |
+| Notes | Additional information or error messages |
 
 ## Requirements
 
@@ -67,6 +75,11 @@ This v3.0.0 "Improved" version is the recommended version because it:
 
 ## Version History
 
+- **v3.2.0** - Enhanced Preview with Timeout Protection
+  - Added automatic pause/resume for preview function to handle thousands of accounts
+  - Preview now saves state and continues from where it left off after timeouts
+  - Updated Check Status to show progress for both scan types
+  - Removed unused columns (Notes, Reserved, Status) from Archived Accounts sheet
 - **v3.1.0** - Added Device Preview Feature
   - New "Scan Device Preview" function to check devices before deletion
   - Shows device count, models, and last scanned time

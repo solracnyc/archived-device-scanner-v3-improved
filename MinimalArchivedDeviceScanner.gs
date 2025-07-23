@@ -3,7 +3,7 @@
  * Clean, efficient Google Apps Script to remove mobile devices from archived accounts
  * 
  * @author Your Organization
- * @version 3.1.0
+ * @version 3.2.0
  * @license MIT
  */
 
@@ -14,6 +14,7 @@ const CONFIG = {
   DEBUG_SHEET_NAME: 'Debug Log',
   MAX_EXECUTION_TIME: 4.5 * 60 * 1000, // 4.5 minutes
   STATE_KEY: 'ArchivedDeviceScannerState',
+  PREVIEW_STATE_KEY: 'ArchivedDeviceScannerPreviewState',
   BATCH_SIZE: 100, // Devices per API call
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY: 1000 // Base delay in ms
@@ -268,10 +269,33 @@ function initializeState(accounts) {
   return state;
 }
 
+//================== PREVIEW STATE MANAGEMENT ==================
+function loadPreviewState() {
+  const stateJson = PropertiesService.getScriptProperties().getProperty(CONFIG.PREVIEW_STATE_KEY);
+  return stateJson ? JSON.parse(stateJson) : null;
+}
+
+function savePreviewState(state) {
+  PropertiesService.getScriptProperties().setProperty(CONFIG.PREVIEW_STATE_KEY, JSON.stringify(state));
+}
+
+function initializePreviewState(emails) {
+  const state = {
+    emails: emails,
+    currentIndex: 0,
+    processed: 0,
+    errors: 0,
+    startTime: new Date().toISOString()
+  };
+  savePreviewState(state);
+  return state;
+}
+
 function resetScan() {
   const ui = SpreadsheetApp.getUi();
   if (ui.alert('Reset Scanner', 'Clear all progress and start over?', ui.ButtonSet.YES_NO) === ui.Button.YES) {
     PropertiesService.getScriptProperties().deleteProperty(CONFIG.STATE_KEY);
+    PropertiesService.getScriptProperties().deleteProperty(CONFIG.PREVIEW_STATE_KEY);
     deleteAllTriggers();
     debugLog('Scanner reset by user');
     ui.alert('Reset complete');
@@ -294,6 +318,26 @@ function completeScan(state) {
   const message = `Scan complete!\n\nAccounts: ${state.totalAccounts}\nDevices removed: ${state.devicesRemoved}\nErrors: ${state.errorsCount}`;
   debugLog('Scan completed: ' + message.replace(/\n/g, ' '));
   SpreadsheetApp.getUi().alert('✅ Scan Complete', message, SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+//================== PREVIEW CONTINUATION ==================
+function schedulePreviewContinuation() {
+  deleteAllTriggers();
+  ScriptApp.newTrigger('scanDevicePreview')
+    .timeBased()
+    .after(60 * 1000)
+    .create();
+}
+
+function completePreview(state) {
+  deleteAllTriggers();
+  PropertiesService.getScriptProperties().deleteProperty(CONFIG.PREVIEW_STATE_KEY);
+  
+  const duration = Math.round((new Date() - new Date(state.startTime)) / 1000);
+  const message = `Preview complete!\n\nAccounts scanned: ${state.processed}\nErrors: ${state.errors}\nDuration: ${duration} seconds`;
+  
+  SpreadsheetApp.getUi().alert('✅ Preview Complete', message, SpreadsheetApp.getUi().ButtonSet.OK);
+  debugLog(`Device preview completed: ${message.replace(/\n/g, ' ')}`);
 }
 
 //================== UTILITIES ==================
@@ -337,18 +381,34 @@ function logResult(email, status, model, type, resourceId, notes) {
 //================== STATUS & TESTING ==================
 function checkStatus() {
   const state = loadState();
-  if (!state) {
-    SpreadsheetApp.getUi().alert('No active scan');
+  const previewState = loadPreviewState();
+  
+  if (!state && !previewState) {
+    SpreadsheetApp.getUi().alert('No active scan or preview');
     return;
   }
   
-  const percentage = Math.round((state.currentIndex / state.totalAccounts) * 100);
-  const message = `Progress: ${state.currentIndex}/${state.totalAccounts} (${percentage}%)\n` +
-                  `Devices removed: ${state.devicesRemoved}\n` +
-                  `Errors: ${state.errorsCount}\n` +
-                  `Started: ${new Date(state.startTime).toLocaleString()}`;
+  let message = '';
   
-  SpreadsheetApp.getUi().alert('📊 Scan Status', message, SpreadsheetApp.getUi().ButtonSet.OK);
+  if (state) {
+    const percentage = Math.round((state.currentIndex / state.totalAccounts) * 100);
+    message += `📊 DEVICE REMOVAL SCAN:\n` +
+               `Progress: ${state.currentIndex}/${state.totalAccounts} (${percentage}%)\n` +
+               `Devices removed: ${state.devicesRemoved}\n` +
+               `Errors: ${state.errorsCount}\n` +
+               `Started: ${new Date(state.startTime).toLocaleString()}\n\n`;
+  }
+  
+  if (previewState) {
+    const percentage = Math.round((previewState.currentIndex / previewState.emails.length) * 100);
+    message += `🔍 PREVIEW SCAN:\n` +
+               `Progress: ${previewState.currentIndex}/${previewState.emails.length} (${percentage}%)\n` +
+               `Processed: ${previewState.processed}\n` +
+               `Errors: ${previewState.errors}\n` +
+               `Started: ${new Date(previewState.startTime).toLocaleString()}`;
+  }
+  
+  SpreadsheetApp.getUi().alert('📊 Status', message, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 function testAccount() {
@@ -372,102 +432,127 @@ function testAccount() {
  * Scan emails and preview device information without deleting anything
  */
 function scanDevicePreview() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const accountsSheet = ss.getSheetByName(CONFIG.ACCOUNTS_SHEET_NAME);
-  
-  if (!accountsSheet) {
-    SpreadsheetApp.getUi().alert('Archived Accounts sheet not found. Run Setup Sheets first.');
-    return;
-  }
-  
-  const lastRow = accountsSheet.getLastRow();
-  if (lastRow <= 1) {
-    SpreadsheetApp.getUi().alert('No accounts found. Please add emails to the Archived Accounts sheet.');
-    return;
-  }
-  
-  const ui = SpreadsheetApp.getUi();
-  const response = ui.alert(
-    '🔍 Scan Device Preview',
-    `This will scan ${lastRow - 1} accounts to preview their devices.\nNo devices will be deleted.\n\nContinue?`,
-    ui.ButtonSet.YES_NO
-  );
-  
-  if (response !== ui.Button.YES) return;
-  
-  // Get all emails
-  const emails = accountsSheet.getRange(`A2:A${lastRow}`).getValues().flat().filter(email => email);
-  
-  if (emails.length === 0) {
-    ui.alert('No valid email addresses found.');
-    return;
-  }
-  
   const startTime = Date.now();
-  let processed = 0;
-  let errors = 0;
   
-  SpreadsheetApp.getActiveSpreadsheet().toast('Starting device preview scan...', '🔍 Scanning');
-  
-  // Process each email
-  emails.forEach((email, index) => {
-    if (!isValidEmail(email)) {
-      processed++;
-      return;
-    }
+  try {
+    let state = loadPreviewState();
     
-    try {
-      const devices = getUserDevices(email);
-      const rowNumber = index + 2; // +2 because we start from row 2
+    if (!state) {
+      // Initialize preview
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const accountsSheet = ss.getSheetByName(CONFIG.ACCOUNTS_SHEET_NAME);
       
-      if (devices.length > 0) {
-        // Extract device models
-        const deviceModels = devices.map(device => {
-          const model = device.model || device.type || 'Unknown';
-          const os = device.os ? ` (${device.os})` : '';
-          return model + os;
-        }).join(', ');
-        
-        // Update the row with device information
-        accountsSheet.getRange(rowNumber, 2).setValue(devices.length); // Device Count
-        accountsSheet.getRange(rowNumber, 3).setValue(deviceModels); // Device Models
-        accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
-        
-        debugLog(`Preview: ${email} has ${devices.length} devices: ${deviceModels}`);
-      } else {
-        // No devices found
-        accountsSheet.getRange(rowNumber, 2).setValue(0); // Device Count
-        accountsSheet.getRange(rowNumber, 3).setValue('No devices'); // Device Models
-        accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
-        
-        debugLog(`Preview: ${email} has no devices`);
+      if (!accountsSheet) {
+        SpreadsheetApp.getUi().alert('Archived Accounts sheet not found. Run Setup Sheets first.');
+        return;
       }
       
-      processed++;
+      const lastRow = accountsSheet.getLastRow();
+      if (lastRow <= 1) {
+        SpreadsheetApp.getUi().alert('No accounts found. Please add emails to the Archived Accounts sheet.');
+        return;
+      }
+      
+      const ui = SpreadsheetApp.getUi();
+      const response = ui.alert(
+        '🔍 Scan Device Preview',
+        `This will scan ${lastRow - 1} accounts to preview their devices.\nNo devices will be deleted.\n\nContinue?`,
+        ui.ButtonSet.YES_NO
+      );
+      
+      if (response !== ui.Button.YES) return;
+      
+      // Get all emails
+      const emails = accountsSheet.getRange(`A2:A${lastRow}`).getValues().flat().filter(email => email);
+      
+      if (emails.length === 0) {
+        ui.alert('No valid email addresses found.');
+        return;
+      }
+      
+      state = initializePreviewState(emails);
+      debugLog('Starting device preview for ' + emails.length + ' accounts');
+    } else {
+      debugLog('Resuming preview at index ' + state.currentIndex);
+    }
+    
+    const accountsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ACCOUNTS_SHEET_NAME);
+    
+    // Main processing loop with time checking
+    while (state.currentIndex < state.emails.length) {
+      if (Date.now() - startTime > CONFIG.MAX_EXECUTION_TIME) {
+        savePreviewState(state);
+        schedulePreviewContinuation();
+        debugLog('Preview time limit reached, continuing in 60 seconds');
+        SpreadsheetApp.getActiveSpreadsheet().toast(
+          `Preview paused at ${state.currentIndex}/${state.emails.length}. Will resume automatically...`,
+          '⏸️ Pausing'
+        );
+        return;
+      }
+      
+      const email = state.emails[state.currentIndex];
+      const rowNumber = state.currentIndex + 2; // +2 because we start from row 2
+      
+      if (!isValidEmail(email)) {
+        state.processed++;
+        state.currentIndex++;
+        continue;
+      }
+      
+      try {
+        const devices = getUserDevices(email);
+        
+        if (devices.length > 0) {
+          // Extract device models
+          const deviceModels = devices.map(device => {
+            const model = device.model || device.type || 'Unknown';
+            const os = device.os ? ` (${device.os})` : '';
+            return model + os;
+          }).join(', ');
+          
+          // Update the row with device information
+          accountsSheet.getRange(rowNumber, 2).setValue(devices.length); // Device Count
+          accountsSheet.getRange(rowNumber, 3).setValue(deviceModels); // Device Models
+          accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
+          
+          debugLog(`Preview: ${email} has ${devices.length} devices: ${deviceModels}`);
+        } else {
+          // No devices found
+          accountsSheet.getRange(rowNumber, 2).setValue(0); // Device Count
+          accountsSheet.getRange(rowNumber, 3).setValue('No devices'); // Device Models
+          accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
+          
+          debugLog(`Preview: ${email} has no devices`);
+        }
+        
+      } catch (error) {
+        accountsSheet.getRange(rowNumber, 2).setValue('Error'); // Device Count
+        accountsSheet.getRange(rowNumber, 3).setValue(error.message); // Error message
+        accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
+        
+        debugLog(`Error previewing devices for ${email}: ${error.message}`);
+        state.errors++;
+      }
+      
+      state.processed++;
+      state.currentIndex++;
       
       // Update progress every 10 accounts
-      if (processed % 10 === 0) {
+      if (state.processed % 10 === 0) {
+        savePreviewState(state);
         SpreadsheetApp.getActiveSpreadsheet().toast(
-          `Scanned ${processed}/${emails.length} accounts...`,
+          `Scanned ${state.processed}/${state.emails.length} accounts...`,
           '🔍 Progress'
         );
       }
-      
-    } catch (error) {
-      const rowNumber = index + 2;
-      accountsSheet.getRange(rowNumber, 2).setValue('Error'); // Device Count
-      accountsSheet.getRange(rowNumber, 3).setValue(error.message); // Error message
-      accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
-      
-      debugLog(`Error previewing devices for ${email}: ${error.message}`);
-      errors++;
-      processed++;
     }
-  });
-  
-  const duration = Math.round((Date.now() - startTime) / 1000);
-  const message = `Preview complete!\n\nAccounts scanned: ${processed}\nErrors: ${errors}\nDuration: ${duration} seconds`;
-  
-  SpreadsheetApp.getUi().alert('✅ Preview Complete', message, SpreadsheetApp.getUi().ButtonSet.OK);
-  debugLog(`Device preview completed: ${message.replace(/\n/g, ' ')}`);
+    
+    // Preview complete
+    completePreview(state);
+    
+  } catch (error) {
+    debugLog('CRITICAL ERROR in preview: ' + error.toString());
+    throw error;
+  }
 }
