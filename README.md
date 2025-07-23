@@ -35,6 +35,13 @@ This v3.0.0 "Improved" version is the recommended version because it:
 - 🔍 **Device Preview**: Check what devices accounts have before deletion
 - ⏱️ **No Timeouts**: Both scan and preview handle large datasets with automatic pause/resume
 
+## Performance Characteristics
+
+- **Current Speed**: ~5,000 accounts takes several hours with multiple 4.5-minute execution cycles
+- **Processing Method**: Sequential account processing (one API call per email address)
+- **Optimization Status**: Research phase - investigating batch queries and parallel processing
+- **Scalability**: Handles any number of accounts through automatic pause/resume mechanism
+
 ## Menu Options
 
 | Option | Description |
@@ -67,6 +74,24 @@ This v3.0.0 "Improved" version is the recommended version because it:
 | Device ID | Unique device identifier |
 | Notes | Additional information or error messages |
 
+## Technical Architecture
+
+### Current Implementation
+- **Processing**: Sequential account scanning (one API call per email)
+- **API Method**: `AdminDirectory.Mobiledevices.list()` with email-specific queries
+- **Batch Size**: 100 devices per API call (for pagination within each user)
+- **Execution Limits**: 4.5-minute cycles with automatic pause/resume
+- **State Management**: Persistent state saved every 10 accounts
+
+### Known Limitations
+- Sequential processing limits throughput for large datasets
+- Individual API calls required for each email address
+- Fixed 60-second continuation delays between execution cycles
+- Full device projection retrieved even for preview-only operations
+
+### Future Optimization Opportunities
+See [PERFORMANCE.md](PERFORMANCE.md) for detailed optimization research and potential improvements.
+
 ## Requirements
 
 - Google Workspace Admin access
@@ -75,6 +100,11 @@ This v3.0.0 "Improved" version is the recommended version because it:
 
 ## Version History
 
+- **v3.2.1** - UI Context Fixes and Performance Improvements  
+  - Fixed "Cannot call SpreadsheetApp.getUi() from this context" error in triggered executions
+  - Removed intrusive progress notifications every 10 accounts
+  - Added graceful fallbacks for UI operations when running from triggers
+  - Improved user experience for large-scale scans
 - **v3.2.0** - Enhanced Preview with Timeout Protection
   - Added automatic pause/resume for preview function to handle thousands of accounts
   - Preview now saves state and continues from where it left off after timeouts
