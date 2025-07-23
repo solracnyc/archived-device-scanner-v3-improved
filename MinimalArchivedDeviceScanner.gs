@@ -42,19 +42,20 @@ function setupSheets() {
   if (!accountsSheet) accountsSheet = ss.insertSheet(CONFIG.ACCOUNTS_SHEET_NAME, 0);
   
   accountsSheet.clear();
-  accountsSheet.getRange('A1:G1')
-    .setValues([['Email Address', 'Notes', 'Reserved', 'Status', 'Device Count', 'Device Models', 'Last Scanned']])
+  accountsSheet.getRange('A1:D1')
+    .setValues([['Email Address', 'Device Count', 'Device Models', 'Last Scanned']])
     .setFontWeight('bold');
-  accountsSheet.getRange('A2:B2')
-    .setValues([['user@example.com', 'Add emails here, then run Scan Device Preview']]);
+  accountsSheet.getRange('A2')
+    .setValue('user@example.com');
+  accountsSheet.getRange('B2')
+    .setValue('Add emails here, then run Scan Device Preview');
   accountsSheet.setFrozenRows(1);
   
   // Set column widths for better visibility
   accountsSheet.setColumnWidth(1, 200); // Email
-  accountsSheet.setColumnWidth(2, 150); // Notes
-  accountsSheet.setColumnWidth(5, 100); // Device Count
-  accountsSheet.setColumnWidth(6, 300); // Device Models
-  accountsSheet.setColumnWidth(7, 150); // Last Scanned
+  accountsSheet.setColumnWidth(2, 100); // Device Count
+  accountsSheet.setColumnWidth(3, 300); // Device Models
+  accountsSheet.setColumnWidth(4, 150); // Last Scanned
   
   // Log sheet
   let logSheet = ss.getSheetByName(CONFIG.LOG_SHEET_NAME);
@@ -428,16 +429,16 @@ function scanDevicePreview() {
         }).join(', ');
         
         // Update the row with device information
-        accountsSheet.getRange(rowNumber, 5).setValue(devices.length); // Device Count
-        accountsSheet.getRange(rowNumber, 6).setValue(deviceModels); // Device Models
-        accountsSheet.getRange(rowNumber, 7).setValue(new Date().toLocaleString()); // Last Scanned
+        accountsSheet.getRange(rowNumber, 2).setValue(devices.length); // Device Count
+        accountsSheet.getRange(rowNumber, 3).setValue(deviceModels); // Device Models
+        accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
         
         debugLog(`Preview: ${email} has ${devices.length} devices: ${deviceModels}`);
       } else {
         // No devices found
-        accountsSheet.getRange(rowNumber, 5).setValue(0); // Device Count
-        accountsSheet.getRange(rowNumber, 6).setValue('No devices'); // Device Models
-        accountsSheet.getRange(rowNumber, 7).setValue(new Date().toLocaleString()); // Last Scanned
+        accountsSheet.getRange(rowNumber, 2).setValue(0); // Device Count
+        accountsSheet.getRange(rowNumber, 3).setValue('No devices'); // Device Models
+        accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
         
         debugLog(`Preview: ${email} has no devices`);
       }
@@ -454,9 +455,9 @@ function scanDevicePreview() {
       
     } catch (error) {
       const rowNumber = index + 2;
-      accountsSheet.getRange(rowNumber, 5).setValue('Error'); // Device Count
-      accountsSheet.getRange(rowNumber, 6).setValue(error.message); // Error message
-      accountsSheet.getRange(rowNumber, 7).setValue(new Date().toLocaleString()); // Last Scanned
+      accountsSheet.getRange(rowNumber, 2).setValue('Error'); // Device Count
+      accountsSheet.getRange(rowNumber, 3).setValue(error.message); // Error message
+      accountsSheet.getRange(rowNumber, 4).setValue(new Date().toLocaleString()); // Last Scanned
       
       debugLog(`Error previewing devices for ${email}: ${error.message}`);
       errors++;
