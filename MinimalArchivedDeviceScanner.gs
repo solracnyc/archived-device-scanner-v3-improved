@@ -122,8 +122,6 @@ function startScan() {
       // Save progress every 10 accounts
       if (state.currentIndex % 10 === 0) {
         saveState(state);
-        SpreadsheetApp.getActiveSpreadsheet()
-          .toast(`Progress: ${state.currentIndex}/${state.accounts.length} accounts`);
       }
     }
     
@@ -334,10 +332,21 @@ function completePreview(state) {
   PropertiesService.getScriptProperties().deleteProperty(CONFIG.PREVIEW_STATE_KEY);
   
   const duration = Math.round((new Date() - new Date(state.startTime)) / 1000);
-  const message = `Preview complete!\n\nAccounts scanned: ${state.processed}\nErrors: ${state.errors}\nDuration: ${duration} seconds`;
+  const message = `Preview complete! Accounts scanned: ${state.processed}, Errors: ${state.errors}, Duration: ${duration} seconds`;
   
-  SpreadsheetApp.getUi().alert('✅ Preview Complete', message, SpreadsheetApp.getUi().ButtonSet.OK);
-  debugLog(`Device preview completed: ${message.replace(/\n/g, ' ')}`);
+  // Try to show UI alert if we're in a UI context
+  try {
+    SpreadsheetApp.getUi().alert('✅ Preview Complete', message.replace(/,/g, '\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    // If UI is not available (running from trigger), use toast notification
+    try {
+      SpreadsheetApp.getActiveSpreadsheet().toast(message, '✅ Preview Complete', 10);
+    } catch (e2) {
+      // If even toast fails, just log it
+    }
+  }
+  
+  debugLog(`Device preview completed: ${message}`);
 }
 
 //================== UTILITIES ==================
@@ -484,10 +493,17 @@ function scanDevicePreview() {
         savePreviewState(state);
         schedulePreviewContinuation();
         debugLog('Preview time limit reached, continuing in 60 seconds');
-        SpreadsheetApp.getActiveSpreadsheet().toast(
-          `Preview paused at ${state.currentIndex}/${state.emails.length}. Will resume automatically...`,
-          '⏸️ Pausing'
-        );
+        
+        // Try to show pause notification if possible
+        try {
+          SpreadsheetApp.getActiveSpreadsheet().toast(
+            `Preview paused at ${state.currentIndex}/${state.emails.length}. Will resume automatically...`,
+            '⏸️ Pausing'
+          );
+        } catch (e) {
+          // Silent fail if UI context not available
+        }
+        
         return;
       }
       
@@ -538,13 +554,9 @@ function scanDevicePreview() {
       state.processed++;
       state.currentIndex++;
       
-      // Update progress every 10 accounts
+      // Save progress every 10 accounts (without toast notification)
       if (state.processed % 10 === 0) {
         savePreviewState(state);
-        SpreadsheetApp.getActiveSpreadsheet().toast(
-          `Scanned ${state.processed}/${state.emails.length} accounts...`,
-          '🔍 Progress'
-        );
       }
     }
     
