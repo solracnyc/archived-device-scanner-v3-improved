@@ -101,32 +101,45 @@ function startScan() {
       }
       
       state = initializeState(accounts);
-      debugLog('Starting new scan for ' + accounts.length + ' accounts');
+      const processingMode = CONFIG.CONCURRENT_REQUESTS > 1 ? 'parallel' : 'sequential';
+      debugLog(`Starting new ${processingMode} scan for ${accounts.length} accounts (${CONFIG.CONCURRENT_REQUESTS} concurrent requests)`);
     } else {
       debugLog('Resuming scan at index ' + state.currentIndex);
     }
     
-    // Main processing loop
+    // Main processing loop - now supports parallel processing
     while (state.currentIndex < state.accounts.length) {
       if (Date.now() - startTime > CONFIG.MAX_EXECUTION_TIME) {
         saveState(state);
         scheduleContinuation();
-        debugLog('Time limit reached, continuing in 60 seconds');
+        debugLog(`Time limit reached. Progress: ${state.currentIndex}/${state.totalAccounts}. Continuing in 60 seconds`);
         return;
       }
       
-      const email = state.accounts[state.currentIndex];
-      if (isValidEmail(email)) {
-        const result = processAccount(email);
-        state.devicesRemoved += result.devicesRemoved;
-        state.errorsCount += result.errors;
+      // Get a chunk of accounts to process
+      const accountChunk = state.accounts.slice(state.currentIndex, state.currentIndex + CONFIG.CONCURRENT_REQUESTS);
+      
+      // Filter out users who were scanned recently
+      const usersToScan = accountChunk.filter(email => isValidEmail(email) && shouldScanNow(email));
+      const skippedCount = accountChunk.length - usersToScan.length;
+      
+      if (usersToScan.length > 0) {
+        // Process the filtered chunk
+        debugLog(`Processing batch of ${usersToScan.length} users (${skippedCount} skipped due to cache)`);
+        const results = scanShard(usersToScan);
+        state.devicesRemoved += results.devicesRemoved;
+        state.errorsCount += results.errors;
+      } else if (skippedCount > 0) {
+        debugLog(`Skipping batch of ${skippedCount} users (all recently scanned)`);
       }
       
-      state.currentIndex++;
+      // Advance the index by the full chunk size
+      state.currentIndex += accountChunk.length;
       
-      // Save progress every 10 accounts
-      if (state.currentIndex % 10 === 0) {
+      // Save progress periodically (adjusted for chunk processing)
+      if (state.currentIndex % (CONFIG.CONCURRENT_REQUESTS * 2) < CONFIG.CONCURRENT_REQUESTS) {
         saveState(state);
+        debugLog(`Progress: ${state.currentIndex}/${state.totalAccounts} (${Math.round((state.currentIndex / state.totalAccounts) * 100)}%)`);
       }
     }
     
@@ -199,7 +212,8 @@ function getUserDevices(targetEmail) {
         pageToken: pageToken,
         query: 'email:' + targetEmail,
         orderBy: 'EMAIL',
-        projection: 'FULL'
+        projection: 'BASIC',  // Changed from FULL to BASIC for optimization
+        fields: 'mobiledevices(resourceId,model,type,os,status),nextPageToken'  // Only get needed fields
       }));
       
       // The API response now only contains devices for the target user
@@ -247,6 +261,142 @@ function retryApiCall(apiCall) {
   }
   
   throw lastError;
+}
+
+//================== PARALLEL PROCESSING FUNCTIONS ==================
+/**
+ * Builds a lightweight, optimized request object for a user's mobile devices.
+ * Uses BASIC projection and a fields mask to minimize payload size.
+ * @param {string} email The user's email address.
+ * @returns {object} A request object suitable for UrlFetchApp.fetchAll.
+ */
+function buildDeviceRequest(email) {
+  const url = `https://admin.googleapis.com/admin/directory/v1/customer/my_customer/` +
+              `devices/mobile?maxResults=${CONFIG.BATCH_SIZE}&projection=BASIC` +
+              `&query=email:${encodeURIComponent(email)}` +
+              `&fields=mobiledevices(resourceId,model,type,os,status),nextPageToken`;
+  
+  return {
+    url: url,
+    method: 'get',
+    headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  };
+}
+
+/**
+ * Scans a "shard" (a small chunk) of user emails in parallel.
+ * Fetches device lists concurrently and then processes removals.
+ * @param {string[]} emailChunk An array of email addresses to be processed.
+ * @returns {{devicesRemoved: number, errors: number}} Count of removed devices and errors.
+ */
+function scanShard(emailChunk) {
+  if (CONFIG.CONCURRENT_REQUESTS === 1) {
+    // Fall back to sequential processing if configured
+    let totalDevicesRemoved = 0;
+    let totalErrors = 0;
+    
+    for (const email of emailChunk) {
+      const result = processAccount(email);
+      totalDevicesRemoved += result.devicesRemoved;
+      totalErrors += result.errors;
+    }
+    
+    return { devicesRemoved: totalDevicesRemoved, errors: totalErrors };
+  }
+  
+  // Build requests for parallel execution
+  const requests = emailChunk.map(buildDeviceRequest);
+  
+  // Execute all requests in parallel
+  const responses = UrlFetchApp.fetchAll(requests);
+  
+  let totalDevicesRemoved = 0;
+  let totalErrors = 0;
+  
+  responses.forEach((response, idx) => {
+    const email = emailChunk[idx];
+    const responseCode = response.getResponseCode();
+    
+    if (responseCode === 200) {
+      const data = JSON.parse(response.getContentText());
+      const devices = data.mobiledevices || [];
+      
+      if (devices.length > 0) {
+        // First verify user is archived/suspended
+        try {
+          const user = retryApiCall(() => AdminDirectory.Users.get(email));
+          
+          if (!user.archived && !user.suspended) {
+            logResult(email, 'ACTIVE_USER', null, null, null, 'User is active - skipped');
+            return;
+          }
+          
+          // Process device removals
+          devices.forEach(device => {
+            try {
+              retryApiCall(() => AdminDirectory.Mobiledevices.remove('my_customer', device.resourceId));
+              logResult(email, 'REMOVED', device.model, device.type, device.resourceId, `OS: ${device.os || 'N/A'}`);
+              totalDevicesRemoved++;
+            } catch (e) {
+              logResult(email, 'FAILED', device.model, device.type, device.resourceId, 'Remove failed: ' + e.message);
+              totalErrors++;
+            }
+          });
+        } catch (e) {
+          logResult(email, 'ERROR', null, null, null, 'User verification failed: ' + e.message);
+          totalErrors++;
+        }
+      } else {
+        logResult(email, 'NO_DEVICES', null, null, null, 'No mobile devices found');
+      }
+      
+      // Mark the user as scanned for caching purposes
+      updateLastScanTime(email);
+      
+    } else if (responseCode === 404) {
+      logResult(email, 'NOT_FOUND', null, null, null, 'User not found');
+      totalErrors++;
+    } else {
+      // Handle rate limits or other API errors
+      const errorDetail = response.getContentText().substring(0, 200);
+      logResult(email, 'ERROR', null, null, null, `API Error Code: ${responseCode}. Response: ${errorDetail}`);
+      totalErrors++;
+      debugLog(`Failed to fetch devices for ${email}. Code: ${responseCode}, Response: ${errorDetail}`);
+    }
+  });
+  
+  return { devicesRemoved: totalDevicesRemoved, errors: totalErrors };
+}
+
+//================== CACHING HELPERS ==================
+/**
+ * Checks if a user should be scanned now based on the cache TTL.
+ * @param {string} email The user's email.
+ * @returns {boolean} True if the user has not been scanned within the TTL.
+ */
+function shouldScanNow(email) {
+  if (CONFIG.CACHE_TTL_HOURS <= 0) {
+    return true; // Bypass cache if TTL is zero
+  }
+  
+  const lastScan = PropertiesService.getScriptProperties().getProperty(CONFIG.CACHE_KEY_PREFIX + email);
+  if (!lastScan) {
+    return true; // Scan if never scanned before
+  }
+  
+  const hoursSince = (Date.now() - Number(lastScan)) / (1000 * 60 * 60);
+  return hoursSince > CONFIG.CACHE_TTL_HOURS;
+}
+
+/**
+ * Updates the last scanned timestamp for a user in PropertiesService.
+ * @param {string} email The user's email.
+ */
+function updateLastScanTime(email) {
+  if (CONFIG.CACHE_TTL_HOURS > 0) {
+    PropertiesService.getScriptProperties().setProperty(CONFIG.CACHE_KEY_PREFIX + email, Date.now().toString());
+  }
 }
 
 //================== STATE MANAGEMENT ==================
@@ -297,10 +447,26 @@ function initializePreviewState(emails) {
 function resetScan() {
   const ui = SpreadsheetApp.getUi();
   if (ui.alert('Reset Scanner', 'Clear all progress and start over?', ui.ButtonSet.YES_NO) === ui.Button.YES) {
-    PropertiesService.getScriptProperties().deleteProperty(CONFIG.STATE_KEY);
-    PropertiesService.getScriptProperties().deleteProperty(CONFIG.PREVIEW_STATE_KEY);
+    const properties = PropertiesService.getScriptProperties();
+    
+    // Delete state properties
+    properties.deleteProperty(CONFIG.STATE_KEY);
+    properties.deleteProperty(CONFIG.PREVIEW_STATE_KEY);
+    
+    // Clear cache entries
+    const allKeys = properties.getKeys();
+    const cacheKeys = allKeys.filter(key => key.startsWith(CONFIG.CACHE_KEY_PREFIX));
+    
+    if (cacheKeys.length > 0) {
+      // Delete cache keys in batches to avoid quota issues
+      cacheKeys.forEach(key => {
+        properties.deleteProperty(key);
+      });
+      debugLog(`Cleared ${cacheKeys.length} cache entries`);
+    }
+    
     deleteAllTriggers();
-    debugLog('Scanner reset by user');
+    debugLog('Scanner reset by user - all progress and cache cleared');
     ui.alert('Reset complete');
   }
 }
