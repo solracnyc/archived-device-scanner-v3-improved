@@ -161,8 +161,8 @@ function processAccount(email) {
     // Get and validate user
     const user = retryApiCall(() => AdminDirectory.Users.get(email));
     
-    if (!user.archived && !user.suspended) {
-      logResult(email, 'ACTIVE_USER', null, null, null, 'User is active - skipped');
+    if (!user.archived) {
+      logResult(email, 'NOT_ARCHIVED', null, null, null, 'User is not archived - skipped');
       return { devicesRemoved: 0, errors: 0 };
     }
     
@@ -323,12 +323,12 @@ function scanShard(emailChunk) {
       const devices = data.mobiledevices || [];
       
       if (devices.length > 0) {
-        // First verify user is archived/suspended
+        // First verify user is archived
         try {
           const user = retryApiCall(() => AdminDirectory.Users.get(email));
           
-          if (!user.archived && !user.suspended) {
-            logResult(email, 'ACTIVE_USER', null, null, null, 'User is active - skipped');
+          if (!user.archived) {
+            logResult(email, 'NOT_ARCHIVED', null, null, null, 'User is not archived - skipped');
             return;
           }
           

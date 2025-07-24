@@ -1,4 +1,4 @@
-# Archived Device Scanner v3.2.0 (Improved)
+# Archived Device Scanner v3.3.0 (Improved)
 
 The best version of the Google Workspace Archived Device Scanner - a hybrid combining the robust features from v2 original with the improved UI/UX from the Gemini version.
 
