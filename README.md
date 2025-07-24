@@ -114,6 +114,11 @@ See [PERFORMANCE.md](PERFORMANCE.md) for additional optimization research.
 - Admin SDK API enabled
 - Appropriate permissions to view users and devices
 
+## Project Documentation
+
+- **[CLAUDE.md](CLAUDE.md)** - AI development context and coding standards for Claude Code
+- **[PERFORMANCE.md](PERFORMANCE.md)** - Performance analysis and optimization research
+
 ## Version History
 
 - **v3.3.0** - Parallel Processing & Performance Optimization
