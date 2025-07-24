@@ -3,7 +3,7 @@
  * Clean, efficient Google Apps Script to remove mobile devices from archived accounts
  * 
  * @author Your Organization
- * @version 3.2.0
+ * @version 3.3.0
  * @license MIT
  */
 
@@ -17,7 +17,12 @@ const CONFIG = {
   PREVIEW_STATE_KEY: 'ArchivedDeviceScannerPreviewState',
   BATCH_SIZE: 100, // Devices per API call
   RETRY_ATTEMPTS: 3,
-  RETRY_DELAY: 1000 // Base delay in ms
+  RETRY_DELAY: 1000, // Base delay in ms
+  
+  // Parallel processing configuration
+  CONCURRENT_REQUESTS: 5, // Number of users to process in parallel (1 = sequential, max 20)
+  CACHE_TTL_HOURS: 24, // Skip users scanned within this timeframe (0 = disabled)
+  CACHE_KEY_PREFIX: 'last_scan_' // Prefix for cache keys in PropertiesService
 };
 
 //================== MENU & SETUP ==================
